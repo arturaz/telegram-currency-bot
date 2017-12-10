@@ -29,12 +29,12 @@ object RatePair {
   }
 }
 
-case class KnownRates(rates: Map[RatePair, BigDecimal]) {
+case class KnownRates(rates: Map[RatePair, BigDecimal], lastUpdate: Option[OffsetDateTime]) {
   val currencies: Vector[String] =
     rates.keys.flatMap(p => List(p.from, p.to)).toVector.sorted.distinct
 }
 object KnownRates {
-  val empty = apply(Map.empty)
+  val empty = apply(Map.empty, None)
 }
 
 trait RatesProvider {
@@ -48,7 +48,7 @@ trait RatesProvider {
 class CurrencyLayer(apiKey: String) extends RatesProvider {
   val url = s"http://www.apilayer.net/api/live?access_key=$apiKey&format=1"
 
-  private[this] var lastResponse = Option.empty[LastResponse]
+  private[this] var _knownRates = KnownRates.empty
 
   override def fetch()(implicit ws: StandaloneWSClient, ec: ExecutionContext, log: Logger) = {
     def run() = ws.url(url).get().map { resp =>
@@ -56,50 +56,48 @@ class CurrencyLayer(apiKey: String) extends RatesProvider {
         val (c1, c2) = name.splitAt(3)
         Map(RatePair(c1, c2) -> price, RatePair(c2, c1) -> (BigDecimal(1) / price))
       }
-      val parsed = KnownRates(parsedStage1.flatMap { case (pair, price) =>
-        val baseMap = Map(pair -> price)
-        val extendedMap =
-          if (pair.to == "USD") {
-            // Calculate other rates through USD rate
-            parsedStage1.collect {
-              case (RatePair("USD", to), price2) =>
-                RatePair(pair.from, to) -> price * price2
+      val parsed = KnownRates(
+        parsedStage1.flatMap { case (pair, price) =>
+          val baseMap = Map(pair -> price)
+          val extendedMap =
+            if (pair.to == "USD") {
+              // Calculate other rates through USD rate
+              parsedStage1.collect {
+                case (RatePair("USD", to), price2) =>
+                  RatePair(pair.from, to) -> price * price2
+              }
             }
-          }
-          else Map.empty
-        baseMap ++ extendedMap
-      })
-      val data = LastResponse(parsed, OffsetDateTime.now())
-      if (!lastResponse.exists(_.rates == parsed)) {
-        lastResponse = Some(data)
+            else Map.empty
+          baseMap ++ extendedMap
+        },
+        Some(OffsetDateTime.now())
+      )
+      if (_knownRates.rates != parsed.rates) {
+        _knownRates = parsed
       }
       else {
         log.info(
           s"Fetched the same rates as before, no good, wasting requests.\n" +
-            s"Last fetch was at ${lastResponse.map(_.fetchedAt)}, now is ${data.fetchedAt}"
+          s"Last fetch was at ${_knownRates.lastUpdate}, now is ${parsed.lastUpdate}"
         )
       }
-      data.rates
+      parsed
     }
 
-    lastResponse match {
+    _knownRates.lastUpdate match {
       // Free tier only refreshes once per hour, so no point in fetching it more often
       // With refreshing every hour, we should have 24 * 31 = 744 requests which is <= 1000
       // that currency layer gives for free
-      case Some(resp) if resp.fetchedAt.getHour == OffsetDateTime.now().getHour =>
-        Future.successful(resp.rates)
+      case Some(lastUpdate) if lastUpdate.getHour == OffsetDateTime.now().getHour =>
+        Future.successful(_knownRates)
       // Fetch otherwise
       case _ =>
         run()
     }
   }
 
-  override def knownRates = lastResponse match {
-    case Some(resp) => resp.rates
-    case None => KnownRates.empty
-  }
+  override def knownRates = _knownRates
 
-  case class LastResponse(rates: KnownRates, fetchedAt: OffsetDateTime)
   case class Response(quotes: Map[String, BigDecimal])
   object Response {
     implicit val format: Format[Response] = Json.format

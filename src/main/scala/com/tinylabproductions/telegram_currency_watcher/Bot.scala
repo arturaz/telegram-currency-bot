@@ -190,7 +190,10 @@ class Bot(
         val ratesV = rates.toVector.sortBy(_._1.toString).map { case (pair, rate) =>
           f"$pair%-10s $rate%.6f"
         }
-        reply(ratesV.mkString("```\n", "\n", "\n```"), parseMode = Some(ParseMode.Markdown))
+        reply(
+          ratesV.mkString("```\n", "\n", s"\n\nLast update: ${knownRates.lastUpdate}\n```"),
+          parseMode = Some(ParseMode.Markdown)
+        )
       }
     }
   }
@@ -219,7 +222,12 @@ class Bot(
   }
 
   onCommand(CmdStatus) { implicit msg =>
-    reply(clientState.fold("Not subscribed.")(s => s"```\n$s```"), parseMode = Some(ParseMode.Markdown))
+    reply(
+      clientState.fold("Not subscribed.") { s =>
+        s"```\n$s\n\nLast update: ${provider.knownRates.lastUpdate}\n```"
+      },
+      parseMode = Some(ParseMode.Markdown)
+    )
   }
 
   onCommand(CmdSetLowestRate) { implicit msg =>
