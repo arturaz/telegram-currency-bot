@@ -3,7 +3,7 @@ package com.tinylabproductions.telegram_currency_watcher
 import java.nio.file.Paths
 
 import com.tinylabproductions.telegram_currency_watcher.bot.Bot
-import com.tinylabproductions.telegram_currency_watcher.rates.providers.CurrencyLayer
+import com.tinylabproductions.telegram_currency_watcher.rates.providers.{CoinMarketCap, CurrencyLayer}
 
 object Main {
   def main(args: Array[String]): Unit = {
@@ -12,7 +12,7 @@ object Main {
       stateFile <- env("STATE_FILE_PATH")
       currencyLayerApiKey <- env("CURRENCY_LAYER_API_KEY")
     } yield new Bot(
-      apiKey, Paths.get(stateFile), new CurrencyLayer(currencyLayerApiKey)
+      apiKey, Paths.get(stateFile), Vector(new CurrencyLayer(currencyLayerApiKey), new CoinMarketCap)
     )
 
     either match {

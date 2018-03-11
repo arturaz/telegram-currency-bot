@@ -10,14 +10,16 @@ object RatePair {
 
   implicit val format: Format[RatePair] = Format(
     implicitly[Reads[String]].flatMap {
-      case RatePair(pair) => Reads.pure(pair)
+      case RatePair.parse(pair) => Reads.pure(pair)
       case other => Reads(_ => JsError(s"Can't parse '$other' as rate pair"))
     },
     Writes(v => Json.toJson(v.toString))
   )
 
-  def unapply(s: String): Option[RatePair] = s.split("/", 2) match {
-    case Array(c1, c2) => Some(apply(c1, c2))
-    case _ => None
+  object parse {
+    def unapply(s: String): Option[RatePair] = s.split("/", 2) match {
+      case Array(c1, c2) => Some(apply(c1, c2))
+      case _ => None
+    }
   }
 }
