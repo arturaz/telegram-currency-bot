@@ -2,6 +2,9 @@ package com.tinylabproductions.telegram_currency_watcher
 
 import java.nio.file.Paths
 
+import com.tinylabproductions.telegram_currency_watcher.bot.Bot
+import com.tinylabproductions.telegram_currency_watcher.rates.providers.CurrencyLayer
+
 object Main {
   def main(args: Array[String]): Unit = {
     val either = for {

@@ -1,10 +1,13 @@
-package com.tinylabproductions.telegram_currency_watcher
+package com.tinylabproductions.telegram_currency_watcher.bot
 
 import java.nio.file.{Files, Path}
 import java.time.ZonedDateTime
 
 import com.softwaremill.quicklens._
+import com.tinylabproductions.telegram_currency_watcher.rates.{OneCurrency, RatePair, TwoCurrencies}
+import com.tinylabproductions.telegram_currency_watcher.rates.providers.RatesProvider
 import com.typesafe.scalalogging.Logger
+import implicits.BigDecimalE
 import info.mukel.telegrambot4s.api.declarative.Commands
 import info.mukel.telegrambot4s.api.{ChatActions, Polling, TelegramBot}
 import info.mukel.telegrambot4s.methods.{ParseMode, SendMessage}
@@ -20,7 +23,7 @@ class Bot(
   val token: String, stateFilePath: Path, provider: RatesProvider
 ) extends TelegramBot with Polling with Commands with ChatActions
 {
-  implicit val log: Logger = Logger("Bot")
+  implicit def log: Logger = logger
 
   case class RatePairState(
     pair: RatePair,
@@ -61,7 +64,7 @@ class Bot(
     .getOrElse(BotState.empty)
   log.info(s"Initial state: ${__botState}")
 
-  def botState = __botState
+  def botState: BotState = __botState
 
   def updateState(f: BotState => BotState): Unit = this.synchronized {
     __botState = f(botState)
@@ -92,11 +95,12 @@ class Bot(
         updateState { botState =>
           botState.modify(_.clients).using(_.flatMap { case (id, state) =>
             rates.rates.get(state.ratePairState.pair) match {
-              case Some(lastRate) => Some(
-                id -> state
+              case Some(lastRate) =>
+                val newState =
+                  state
                   .modify(_.ratePairState.lowestRate).setTo(state.ratePairState.lowestRate min lastRate)
                   .modify(_.ratePairState.lastRate).setTo(lastRate)
-              )
+                Some(id -> newState)
               case None =>
                 request(SendMessage(
                   id, s"Rate provider removed ${state.ratePairState.pair} from their rates, unsubscribing!"
@@ -145,21 +149,6 @@ class Bot(
         |
       """.stripMargin
     )
-  }
-
-  sealed trait RatesFilter {
-    def matches(pair: RatePair): Boolean
-  }
-  case class OneCurrency(c: String) extends RatesFilter {
-    override def matches(pair: RatePair) = {
-      val cl = c.toLowerCase
-      pair.from.toLowerCase.contains(cl) || pair.to.toLowerCase.contains(cl)
-    }
-  }
-  case class TwoCurrencies(from: String, to: String) extends RatesFilter {
-    override def matches(pair: RatePair) =
-      pair.from.toLowerCase.contains(from.toLowerCase) &&
-      pair.to.toLowerCase.contains(to.toLowerCase)
   }
 
   onCommand(CmdRates) { implicit msg =>
